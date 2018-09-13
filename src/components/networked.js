@@ -7,6 +7,7 @@ AFRAME.registerComponent('networked', {
   schema: {
     template: {default: ''},
     attachTemplateToLocal: { default: true },
+    persistent: { default: false },
 
     networkId: {default: ''},
     owner: {default: ''},
