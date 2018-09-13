@@ -257,6 +257,7 @@ AFRAME.registerComponent('networked', {
       0: 0, // 0 for not compressed
       networkId: data.networkId,
       owner: data.owner,
+      persistent: data.persistent,
       lastOwnerTime: this.lastOwnerTime,
       template: data.template,
       parent: this.getParentId(),
@@ -314,6 +315,9 @@ AFRAME.registerComponent('networked', {
       this.el.emit(this.OWNERSHIP_CHANGED, { el: this.el, oldOwner: oldOwner, newOwner: newOwner});
 
       this.el.setAttribute('networked', { owner: entityData.owner });
+    }
+    if (this.data.persistent !== entityData.persistent) {
+      this.el.setAttribute('networked', 'persistent', entityData.persistent);
     }
     this.updateComponents(entityData.components);
   },
