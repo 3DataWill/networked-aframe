@@ -484,7 +484,8 @@
 	      var networkData = {
 	        template: entityData.template,
 	        owner: entityData.owner,
-	        networkId: entityData.networkId
+	        networkId: entityData.networkId,
+	        persistent: entityData.persistent
 	      };
 
 	      entity.setAttribute('networked', networkData);
@@ -583,8 +584,14 @@
 	      for (var id in this.entities) {
 	        var entityOwner = NAF.utils.getNetworkOwner(this.entities[id]);
 	        if (entityOwner == clientId) {
-	          var entity = this.removeEntity(id);
-	          entityList.push(entity);
+	          var persists = void 0;
+	          if (this.entities[id].getAttribute('networked').persistent) {
+	            persists = NAF.utils.takeOwnership(this.entities[id]);
+	          }
+	          if (!persists) {
+	            var entity = this.removeEntity(id);
+	            entityList.push(entity);
+	          }
 	        }
 	      }
 	      return entityList;
@@ -1733,6 +1740,7 @@
 	  schema: {
 	    template: { default: '' },
 	    attachTemplateToLocal: { default: true },
+	    persistent: { default: false },
 
 	    networkId: { default: '' },
 	    owner: { default: '' }
@@ -1985,6 +1993,7 @@
 	      0: 0, // 0 for not compressed
 	      networkId: data.networkId,
 	      owner: data.owner,
+	      persistent: data.persistent,
 	      lastOwnerTime: this.lastOwnerTime,
 	      template: data.template,
 	      parent: this.getParentId(),
@@ -2041,6 +2050,9 @@
 	      this.el.emit(this.OWNERSHIP_CHANGED, { el: this.el, oldOwner: oldOwner, newOwner: newOwner });
 
 	      this.el.setAttribute('networked', { owner: entityData.owner });
+	    }
+	    if (this.data.persistent !== entityData.persistent) {
+	      this.el.setAttribute('networked', 'persistent', entityData.persistent);
 	    }
 	    this.updateComponents(entityData.components);
 	  },
