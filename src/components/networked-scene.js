@@ -16,20 +16,26 @@ AFRAME.registerComponent('networked-scene', {
     var el = this.el;
     this.connect = this.connect.bind(this);
     el.addEventListener('connect', this.connect);
+    this.preConnect = this.preConnect.bind(this);
+    el.addEventListener('preconnect', this.preConnect);
+
+    NAF.log.setDebug(this.data.debug);
+
+    this.checkDeprecatedProperties();
+    this.setupNetworkAdapter();
+
     if (this.data.connectOnLoad) {
       el.emit('connect', null, false);
     }
   },
-
+  preConnect: function () {
+    return NAF.connection.prepare(this.data.audio);
+  },
   /**
    * Connect to signalling server and begin connecting to other clients
    */
   connect: function () {
-    NAF.log.setDebug(this.data.debug);
     NAF.log.write('Networked-Aframe Connecting...');
-
-    this.checkDeprecatedProperties();
-    this.setupNetworkAdapter();
 
     if (this.hasOnConnectFunction()) {
       this.callOnConnect();

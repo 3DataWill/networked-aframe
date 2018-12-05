@@ -41,6 +41,10 @@ class EasyRtcAdapter extends NoOpAdapter {
 
     this.easyrtc.enableVideoReceive(false);
     this.easyrtc.enableAudioReceive(options.audio);
+
+    if (options.audio) {
+      this._setupAudio()
+    }
   }
 
   setServerConnectListeners(successListener, failureListener) {
@@ -96,12 +100,10 @@ class EasyRtcAdapter extends NoOpAdapter {
   connect() {
     Promise.all([
       this.updateTimeOffset(),
-      new Promise((resolve, reject) => {
-        if (this.easyrtc.audioEnabled) {
-          this._connectWithAudio(resolve, reject);
-        } else {
+      Promise.resolve(this._audioSetupPromise).then(() => {
+        return new Promise((resolve, reject) => {
           this.easyrtc.connect(this.app, resolve, reject);
-        }
+        })
       })
     ]).then(([_, clientId]) => {
       this._storeAudioStream(
@@ -211,7 +213,7 @@ class EasyRtcAdapter extends NoOpAdapter {
     }
   }
 
-  _connectWithAudio(connectSuccess, connectFailure) {
+  _setupAudio() {
     var that = this;
 
     this.easyrtc.setStreamAcceptor(this._storeAudioStream.bind(this));
@@ -220,14 +222,16 @@ class EasyRtcAdapter extends NoOpAdapter {
       delete that.audioStreams[easyrtcid];
     });
 
-    this.easyrtc.initMediaSource(
-      function() {
-        that.easyrtc.connect(that.app, connectSuccess, connectFailure);
-      },
-      function(errorCode, errmesg) {
-        NAF.log.error(errorCode, errmesg);
-      }
-    );
+    this._audioSetupPromise = new Promise(function (resolve) {
+      that.easyrtc.initMediaSource(resolve, function (errorCode, errmesg) {
+        // fallback to connect without outgoing audio
+        that.easyrtc.enableAudio(false);
+        NAF.log.write(errorCode, errmesg);
+        resolve()
+      });
+    });
+
+    return this._audioSetupPromise
   }
 
   _getRoomJoinTime(clientId) {
