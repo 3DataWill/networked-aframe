@@ -454,7 +454,8 @@
 	      var networkData = {
 	        template: entityData.template,
 	        owner: entityData.owner,
-	        networkId: entityData.networkId
+	        networkId: entityData.networkId,
+	        persistent: entityData.persistent
 	      };
 
 	      entity.setAttribute('networked', networkData);
@@ -545,8 +546,14 @@
 	      for (var id in this.entities) {
 	        var entityOwner = NAF.utils.getNetworkOwner(this.entities[id]);
 	        if (entityOwner == clientId) {
-	          var entity = this.removeEntity(id);
-	          entityList.push(entity);
+	          var persists = void 0;
+	          if (this.entities[id].getAttribute('networked').persistent) {
+	            persists = NAF.utils.takeOwnership(this.entities[id]);
+	          }
+	          if (!persists) {
+	            var entity = this.removeEntity(id);
+	            entityList.push(entity);
+	          }
 	        }
 	      }
 	      return entityList;
@@ -673,6 +680,8 @@
 
 	    this.connectedClients = {};
 	    this.activeDataChannels = {};
+
+	    this.hasPreparedConnection = false;
 	  }
 
 	  _createClass(NetworkConnection, [{
@@ -690,6 +699,20 @@
 	      this.dataChannelSubs[ReservedDataType.Remove] = this.entities.removeRemoteEntity.bind(this.entities);
 	    }
 	  }, {
+	    key: 'prepare',
+	    value: function prepare() {
+	      var enableAudio = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
+
+	      var webrtcOptions = {
+	        audio: enableAudio,
+	        video: false,
+	        datachannel: true
+	      };
+	      this.adapter.setWebRtcOptions(webrtcOptions);
+
+	      this.hasPreparedConnection = true;
+	    }
+	  }, {
 	    key: 'connect',
 	    value: function connect(serverUrl, appName, roomName) {
 	      var enableAudio = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
@@ -700,13 +723,9 @@
 	      this.adapter.setServerUrl(serverUrl);
 	      this.adapter.setApp(appName);
 	      this.adapter.setRoom(roomName);
-
-	      var webrtcOptions = {
-	        audio: enableAudio,
-	        video: false,
-	        datachannel: true
-	      };
-	      this.adapter.setWebRtcOptions(webrtcOptions);
+	      if (!this.hasPreparedConnection) {
+	        this.prepare(enableAudio);
+	      }
 
 	      this.adapter.setServerConnectListeners(this.connectSuccess.bind(this), this.connectFailure.bind(this));
 	      this.adapter.setDataChannelListeners(this.dataChannelOpen.bind(this), this.dataChannelClosed.bind(this), this.receivedData.bind(this));
@@ -1395,6 +1414,10 @@
 
 	      this.easyrtc.enableVideoReceive(false);
 	      this.easyrtc.enableAudioReceive(options.audio);
+
+	      if (options.audio) {
+	        this._setupAudio();
+	      }
 	    }
 	  }, {
 	    key: "setServerConnectListeners",
@@ -1456,12 +1479,10 @@
 	    value: function connect() {
 	      var _this3 = this;
 
-	      Promise.all([this.updateTimeOffset(), new Promise(function (resolve, reject) {
-	        if (_this3.easyrtc.audioEnabled) {
-	          _this3._connectWithAudio(resolve, reject);
-	        } else {
+	      Promise.all([this.updateTimeOffset(), Promise.resolve(this._audioSetupPromise).then(function () {
+	        return new Promise(function (resolve, reject) {
 	          _this3.easyrtc.connect(_this3.app, resolve, reject);
-	        }
+	        });
 	      })]).then(function (_ref) {
 	        var _ref2 = _slicedToArray(_ref, 2),
 	            _ = _ref2[0],
@@ -1575,8 +1596,8 @@
 	      }
 	    }
 	  }, {
-	    key: "_connectWithAudio",
-	    value: function _connectWithAudio(connectSuccess, connectFailure) {
+	    key: "_setupAudio",
+	    value: function _setupAudio() {
 	      var that = this;
 
 	      this.easyrtc.setStreamAcceptor(this._storeAudioStream.bind(this));
@@ -1585,11 +1606,16 @@
 	        delete that.audioStreams[easyrtcid];
 	      });
 
-	      this.easyrtc.initMediaSource(function () {
-	        that.easyrtc.connect(that.app, connectSuccess, connectFailure);
-	      }, function (errorCode, errmesg) {
-	        NAF.log.error(errorCode, errmesg);
+	      this._audioSetupPromise = new Promise(function (resolve) {
+	        that.easyrtc.initMediaSource(resolve, function (errorCode, errmesg) {
+	          // fallback to connect without outgoing audio
+	          that.easyrtc.enableAudio(false);
+	          NAF.log.write(errorCode, errmesg);
+	          resolve();
+	        });
 	      });
+
+	      return this._audioSetupPromise;
 	    }
 	  }, {
 	    key: "_getRoomJoinTime",
@@ -1634,20 +1660,26 @@
 	    var el = this.el;
 	    this.connect = this.connect.bind(this);
 	    el.addEventListener('connect', this.connect);
+	    this.preConnect = this.preConnect.bind(this);
+	    el.addEventListener('preconnect', this.preConnect);
+
+	    NAF.log.setDebug(this.data.debug);
+
+	    this.checkDeprecatedProperties();
+	    this.setupNetworkAdapter();
+
 	    if (this.data.connectOnLoad) {
 	      el.emit('connect', null, false);
 	    }
 	  },
-
+	  preConnect: function preConnect() {
+	    return NAF.connection.prepare(this.data.audio);
+	  },
 	  /**
 	   * Connect to signalling server and begin connecting to other clients
 	   */
 	  connect: function connect() {
-	    NAF.log.setDebug(this.data.debug);
 	    NAF.log.write('Networked-Aframe Connecting...');
-
-	    this.checkDeprecatedProperties();
-	    this.setupNetworkAdapter();
 
 	    if (this.hasOnConnectFunction()) {
 	      this.callOnConnect();
@@ -1711,6 +1743,7 @@
 	  schema: {
 	    template: { default: '' },
 	    attachTemplateToLocal: { default: true },
+	    persistent: { default: false },
 
 	    networkId: { default: '' },
 	    owner: { default: '' }
@@ -1999,6 +2032,7 @@
 	    syncData.owner = data.owner;
 	    syncData.lastOwnerTime = this.lastOwnerTime;
 	    syncData.template = data.template;
+	    syncData.persistent = data.persistent;
 	    syncData.parent = this.getParentId();
 	    syncData.components = components;
 	    syncData.isFirstSync = !!isFirstSync;
@@ -2049,6 +2083,9 @@
 	      this.el.emit(this.OWNERSHIP_CHANGED, this.onOwnershipChangedEvent);
 
 	      this.el.setAttribute('networked', { owner: entityData.owner });
+	    }
+	    if (this.data.persistent !== entityData.persistent) {
+	      this.el.setAttribute('networked', 'persistent', entityData.persistent);
 	    }
 	    this.updateComponents(entityData.components);
 	  },
