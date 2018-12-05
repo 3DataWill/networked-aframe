@@ -1,6 +1,6 @@
 {
   "name": "networked-aframe",
-  "version": "0.6.2a",
+  "version": "0.6.2",
   "description": "A web framework for building multi-user virtual reality experiences.",
   "homepage": "",
   "main": "src/index.js",
